@@ -24,9 +24,11 @@ clap = { version = "3.1.14", features = ["derive"] }
 ebyte-e32 = { version = "0.9.0", features = ["value_enum"] }
 embedded-hal = "0.2.7"
 klask = "1"
-linux-embedded-hal = "0.3.2"
+#linux-embedded-hal = "0.3.2"
 nb = "1.0.0"
 rustyline = "10.0.0"
 serde = "1.0.147"
 serde_derive = "1.0.147"
 toml = "0.5.9"
+serial = "0.4.0"
+serial-core = "0.4.0"

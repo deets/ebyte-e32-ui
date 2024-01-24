@@ -31,7 +31,7 @@ pub enum Mode {
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
     /// Configuration file.
-    #[clap(long, parse(from_os_str), default_value = "Config.toml", value_hint = ValueHint::FilePath)]
+    #[clap(long, parse(from_os_str), default_value = "/Users/deets/software/vc/ebyte-e32-ui/module-b.toml", value_hint = ValueHint::FilePath)]
     pub config: PathBuf,
 
     /// Application mode.

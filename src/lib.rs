@@ -2,6 +2,10 @@
 
 #![doc = include_str!("../README.md")]
 
+mod adapter;
+
+use crate::adapter::Serial;
+use adapter::{CtsAux, M0Dtr, M1Rts, StandardDelay};
 use anyhow::Context;
 use ebyte_e32::{mode::Normal, Ebyte};
 use embedded_hal::{
@@ -9,18 +13,19 @@ use embedded_hal::{
     digital::v2::{InputPin, OutputPin},
     serial::{self, Read, Write},
 };
-use linux_embedded_hal::{
-    gpio_cdev::{Chip, LineRequestFlags},
-    serial_core::{BaudRate, CharSize, FlowControl, PortSettings, SerialPort},
-    serial_unix::TTYPort,
-    CdevPin as Pin, {Delay, Serial},
-};
+use serial_core::{BaudRate, CharSize, FlowControl, PortSettings, SerialPort, StopBits};
+
+//     gpio_cdev::{Chip, LineRequestFlags},
+//     serial_core::{BaudRate, CharSize, FlowControl, PortSettings, SerialPort},
+//     serial_unix::TTYPort,
+//     CdevPin as Pin, {Delay, Serial},
+// };
 use nb::block;
 use rustyline::{error::ReadlineError, Editor};
-use std::fmt::Debug;
+use std::{cell::RefCell, fmt::Debug, rc::Rc, time::Duration};
 
 use arguments::{Args, Mode};
-use config::{load, StopBits};
+use config::load;
 
 /// Configuration from `Config.toml`.
 pub mod config;
@@ -34,12 +39,19 @@ pub mod arguments;
 /// # Panics
 /// Failed initialization of the module driver
 /// or communicating with the module may cause a panic.
-pub fn create(args: &Args) -> anyhow::Result<Ebyte<Serial, Pin, Pin, Pin, Delay, Normal>> {
+pub fn create(
+    args: &Args,
+) -> anyhow::Result<Ebyte<Serial, CtsAux, M0Dtr, M1Rts, StandardDelay, Normal>> {
     let config = load(&args.config).context("Failed to get config")?;
     let baud_rate = BaudRate::from_speed(config.baudrate as usize);
-    let stop_bits = StopBits::try_from(config.stop_bits)
-        .context("Failed to parse stop bits")?
-        .into();
+    let stop_bits = if config.stop_bits == 1 {
+        StopBits::Stop1
+    } else if config.stop_bits == 2 {
+        StopBits::Stop2
+    } else {
+        panic!()
+    };
+
     let settings: PortSettings = PortSettings {
         baud_rate,
         char_size: CharSize::Bits8,
@@ -48,38 +60,21 @@ pub fn create(args: &Args) -> anyhow::Result<Ebyte<Serial, Pin, Pin, Pin, Delay,
         flow_control: FlowControl::FlowNone,
     };
 
-    let mut serial = TTYPort::open(&config.serial_path)
+    let mut port = ::serial::open(&config.serial_path)
         .with_context(|| format!("Failed to open TTY {}", config.serial_path.display()))?;
-    serial
-        .configure(&settings)
+    port.set_timeout(Duration::from_secs(1000))?;
+    port.configure(&settings)
         .context("Failed to set up serial port")?;
-    let serial = Serial(serial);
 
-    let mut gpiochip = Chip::new(&config.gpiochip_path)
-        .with_context(|| format!("Failed to open gpiochip {}", config.gpiochip_path.display()))?;
+    let port = Rc::new(RefCell::new(port));
+    let serial = Serial::new(port.clone());
 
-    let aux = gpiochip
-        .get_line(config.aux_pin)
-        .context("Failed to get AUX line")?
-        .request(LineRequestFlags::INPUT, 0, "ebyte-e32-ui")
-        .context("Failed to request settings for AUX pin")?;
-    let aux = Pin::new(aux).context("Failed to create AUX CDEV pin")?;
+    let aux = CtsAux::new(port.clone());
 
-    let m0 = gpiochip
-        .get_line(config.m0_pin)
-        .context("Failed to get M0 line")?
-        .request(LineRequestFlags::OUTPUT, 0, "ebyte-e32-ui")
-        .context("Failed to request settings for M0 pin")?;
-    let m0 = Pin::new(m0).context("Failed to create M0 CDEV pin")?;
-
-    let m1 = gpiochip
-        .get_line(config.m1_pin)
-        .context("Failed to get M1 line")?
-        .request(LineRequestFlags::OUTPUT, 0, "ebyte-e32-ui")
-        .context("Failed to request settings for M1 pin")?;
-    let m1 = Pin::new(m1).context("Failed to create M1 CDEV pin")?;
-
-    Ebyte::new(serial, aux, m0, m1, Delay).context("Failed to initialize driver")
+    let m0 = M0Dtr::new(port.clone());
+    let m1 = M1Rts::new(port.clone());
+    let delay = StandardDelay {};
+    Ebyte::new(serial, aux, m0, m1, delay).context("Failed to initialize driver")
 }
 
 pub fn run<S, AUX, M0, M1, D>(

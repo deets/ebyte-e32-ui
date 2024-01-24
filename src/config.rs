@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
-use linux_embedded_hal::serial_core;
 use serde_derive::{Deserialize, Serialize};
+use serial_core;
 use std::{
     fs::read_to_string,
     path::{Path, PathBuf},
